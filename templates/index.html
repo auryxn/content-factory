@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Content Factory</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #0f1115; color: #e6e8ec; padding: 24px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #8b90a0; font-size: 13px; margin-bottom: 20px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 20px; }
+  button { background: #2a6df4; color: #fff; border: 0; padding: 10px 16px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  button:hover { background: #1f5bd6; }
+  button:disabled { background: #3a4152; cursor: not-allowed; }
+  button.ghost { background: #232836; }
+  button.done { background: #1e8e5a; }
+  .pill { background: #232836; padding: 4px 10px; border-radius: 20px; font-size: 12px; color: #aeb3c2; }
+  .pill.green { background: #12351f; color: #5fd694; }
+  .pill.blue { background: #12233f; color: #7ab8ff; }
+
+  /* История видео — группы */
+  .group { border: 1px solid #232836; border-radius: 12px; background: #171a21; margin-bottom: 12px; overflow: hidden; }
+  .group-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; user-select: none; }
+  .group-head:hover { background: #1b1f28; }
+  .group-head .caret { transition: transform .15s; color: #8b90a0; }
+  .group-head.open .caret { transform: rotate(90deg); }
+  .group-head .gname { font-weight: 600; flex: 1; }
+  .group-head .gmeta { font-size: 12px; color: #8b90a0; }
+
+  .group-body { display: none; padding: 0 16px 16px; border-top: 1px solid #1c212b; }
+  .group.open .group-body { display: block; }
+
+  /* Массовое редактирование всей группы */
+  .bulk { background: #10141b; border: 1px dashed #2a3242; border-radius: 10px; padding: 14px; margin: 14px 0; }
+  .bulk h3 { font-size: 13px; color: #7ab8ff; margin-bottom: 10px; }
+  .bulk-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
+  .bulk .field label { display: block; font-size: 11px; color: #8b90a0; margin-bottom: 3px; }
+  .bulk input { width: 100%; background: #0f1115; border: 1px solid #232836; color: #e6e8ec; padding: 7px 9px; border-radius: 6px; font-size: 13px; }
+  .bulk .apply { margin-top: 10px; }
+  .bulk-msg { font-size: 12px; color: #5fd694; margin-top: 8px; min-height: 16px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .card { background: #14171e; border: 1px solid #232836; border-radius: 10px; overflow: hidden; }
+  .card video { width: 100%; aspect-ratio: 9/16; background: #000; object-fit: cover; }
+  .card .body { padding: 10px; }
+  .card .file { font-weight: 600; font-size: 12px; margin-bottom: 6px; word-break: break-all; color: #c4c9d4; }
+  .card .meta { font-size: 11px; color: #8b90a0; }
+  .card .status { margin-top: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .card .status button { padding: 6px 10px; font-size: 12px; }
+
+  .empty { color: #8b90a0; text-align: center; padding: 40px 0; }
+  #log { margin-top: 16px; background: #0a0c10; border: 1px solid #232836; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; white-space: pre-wrap; display: none; }
+</style>
+</head>
+<body>
+  <h1>🦾 Content Factory</h1>
+  <div class="sub">Survival нарезки по 2:00 → TikTok. Один аккаунт.</div>
+
+  <div class="row">
+    <button id="btnDiscover" onclick="discover()">Обнаружить новые видео</button>
+    <button id="btnMontage" onclick="montage()">Монтировать все</button>
+    <button id="btnSched" onclick="recalcSched()">🕒 Пересчитать расписание</button>
+    <span class="pill" id="incomingPill">incoming: 0</span>
+    <span class="pill green" id="bgmPill">музыка: нет</span>
+    <span class="pill" id="readyPill">готово: 0</span>
+  </div>
+
+  <div id="log"></div>
+  <div id="history"></div>
+  <div id="empty" class="empty">Пока пусто. Кидай видео в папку <b>incoming/</b> и жми «Обнаружить».</div>
+
+<script>
+let state = { incoming: [], groups: [] };
+let openGroups = new Set();
+
+function el(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtTime(iso){
+  const d = new Date(iso);
+  return d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+
+async function api(path, opts={}){
+  const r = await fetch(path, { headers: {'Content-Type':'application/json'}, ...opts });
+  return r.json();
+}
+
+async function refresh(){
+  state = await api('/api/state');
+  el('incomingPill').textContent = 'incoming: ' + state.incoming.length;
+  el('bgmPill').textContent = 'музыка: ' + (state.has_bgm ? 'есть' : 'нет');
+  const ready = state.groups.reduce((n,g)=> n + g.jobs.filter(j=>j.status!=='posted').length, 0);
+  el('readyPill').textContent = 'готово: ' + ready;
+  render();
+}
+
+function groupHeadHTML(g){
+  const posted = g.jobs.filter(j=>j.status==='posted').length;
+  const open = openGroups.has(g.name) ? 'open' : '';
+  const acc = g.jobs[0]?.account || 'main';
+  return `
+    <div class="group-head ${open}" data-group="${esc(g.name)}">
+      <span class="caret">▶</span>
+      <span class="gname">🎬 ${esc(g.name)}</span>
+      <span class="pill blue">${g.count} нарезок</span>
+      <span class="pill">акк: ${esc(acc)}</span>
+      <span class="pill ${posted===g.count && g.count ? 'green':''}">${posted}/${g.count} выложено</span>
+    </div>`;
+}
+
+function bulkHTML(g){
+  const j = g.jobs[0] || {};
+  // Показываем ЧИСТОЕ базовое описание (без ' | Part N') — номер добавится автоматически
+  let base = j.caption || "";
+  base = base.replace(/\s*\|?\s*Part\s*\d+\s*$/i, "").trim();
+  return `
+    <div class="bulk">
+      <h3>✏️ Массовое редактирование — применить ко всем ${g.count} нарезкам</h3>
+      <p style="font-size:11px;color:#8b90a0;margin:-4px 0 10px;">Описание — БЕЗ номера части. «Part N» добавится сам к каждой нарезке.</p>
+      <div class="bulk-grid">
+        <div class="field"><label>Аккаунт</label>
+          <input class="b-account" value="${esc(j.account||'')}" placeholder="main"></div>
+        <div class="field"><label>Описание</label>
+          <input class="b-caption" value="${esc(base)}"></div>
+      </div>
+      <div class="field"><label>Хештеги (через пробел)</label>
+        <input class="b-tags" value="${esc((j.tags||[]).join(' '))}"></div>
+      <button class="apply" data-group="${esc(g.name)}">Применить ко всем</button>
+      <div class="bulk-msg" data-msg="${esc(g.name)}"></div>
+    </div>`;
+}
+
+function groupBodyHTML(g){
+  let cards = '';
+  g.jobs.forEach((j, idx) => {
+    const sched = j.scheduled_at ? fmtTime(j.scheduled_at) : '—';
+    const postText = (j.caption||'') + (j.tags&&j.tags.length ? '\n' + j.tags.join(' ') : '') + '\n🕒 ' + sched;
+    cards += `
+      <div class="card">
+        <video src="/media/${esc(j.file)}" controls preload="metadata"></video>
+        <div class="body">
+          <div class="file">${esc(j.file)}</div>
+          <div class="meta">акк: ${esc(j.account)} · ${j.status==='posted' ? '✓ выложено' : 'готово'}</div>
+          <div class="meta">${esc(j.caption)}</div>
+          <div class="meta" style="color:#7ab8ff">🕒 выложить: ${sched}</div>
+          <div class="status">
+            <button class="${j.status==='posted'?'done':''}" data-group="${esc(g.name)}" data-idx="${idx}" data-act="toggle">${j.status==='posted' ? '✓ Выложено' : 'Отметить выложенным'}</button>
+            <button class="ghost" data-group="${esc(g.name)}" data-idx="${idx}" data-act="copytxt" title="Копировать описание">📋 Копировать</button>
+            <button class="ghost" data-act="dl" data-file="${esc(j.file)}">⬇️ Скачать</button>
+          </div>
+        </div>
+      </div>`;
+  });
+  return `<div class="group-body">${bulkHTML(g)}<div class="grid">${cards}</div></div>`;
+}
+
+function render(){
+  const hist = el('history');
+  hist.innerHTML = '';
+  const empty = el('empty');
+  if (!state.groups.length){ empty.style.display='block'; return; }
+  empty.style.display='none';
+
+  state.groups.forEach(g => {
+    const div = document.createElement('div');
+    div.className = 'group' + (openGroups.has(g.name) ? ' open' : '');
+    div.innerHTML = groupHeadHTML(g) + groupBodyHTML(g);
+    hist.appendChild(div);
+  });
+
+  // раскрытие/сворачивание групп
+  hist.querySelectorAll('.group-head').forEach(h => {
+    h.addEventListener('click', () => {
+      const name = h.dataset.group;
+      if (openGroups.has(name)) openGroups.delete(name); else openGroups.add(name);
+      h.classList.toggle('open');
+      h.closest('.group').classList.toggle('open');
+      const caret = h.querySelector('.caret');
+      caret.style.transform = openGroups.has(name) ? 'rotate(90deg)' : '';
+    });
+  });
+
+  // массовое применение
+  hist.querySelectorAll('.apply').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const g = btn.dataset.group;
+      const box = btn.closest('.bulk');
+      const payload = {
+        group: g,
+        account: box.querySelector('.b-account').value,
+        caption: box.querySelector('.b-caption').value,
+        tags: box.querySelector('.b-tags').value.split(/\s+/).filter(Boolean),
+      };
+      const res = await api('/api/update_group', { method:'POST', body: JSON.stringify(payload) });
+      const msg = box.querySelector('.bulk-msg');
+      msg.textContent = `✓ Обновлено ${res.changed} нарезок: аккаунт, описание (Part N сохраняется), хештеги`;
+      refresh();
+    });
+  });
+
+  // отметка выложено на конкретной нарезке
+  hist.querySelectorAll('[data-act="toggle"]').forEach(btn => {
+    const idx = parseInt(btn.dataset.idx);
+    const gname = btn.dataset.group;
+    const job = state.groups.find(g=>g.name===gname).jobs[idx];
+    btn.addEventListener('click', async () => {
+      // /api/update работает по глобальному индексу в jobs.json
+      let gidx = 0; let found = false;
+      outer:
+      for (const g of state.groups){
+        for (const j of g.jobs){
+          if (j.file === job.file){ found = true; break outer; }
+          gidx++;
+        }
+      }
+      if (!found) return;
+      await api('/api/update', { method:'POST', body: JSON.stringify({ index: gidx, status: job.status==='posted' ? 'ready' : 'posted' }) });
+      refresh();
+    });
+  });
+  // копирование описания нарезки (описание + хештеги)
+  hist.querySelectorAll('[data-act="copytxt"]').forEach(btn => {
+    const idx = parseInt(btn.dataset.idx);
+    const gname = btn.dataset.group;
+    const job = state.groups.find(g=>g.name===gname).jobs[idx];
+    btn.addEventListener('click', async () => {
+      const text = (job.caption||'') + (job.tags && job.tags.length ? '\n' + job.tags.join(' ') : '');
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch(e) {
+        // fallback для не-HTTPS контекста
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); ta.remove();
+      }
+      btn.textContent = '✓ Скопировано';
+      setTimeout(()=>{ btn.textContent = '📋 Копировать'; }, 1500);
+    });
+  });
+
+  // скачивание видео (принудительная загрузка)
+  hist.querySelectorAll('[data-act="dl"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const a = document.createElement('a');
+      a.href = '/download/' + encodeURIComponent(btn.dataset.file);
+      a.download = btn.dataset.file;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+  });
+}
+
+async function recalcSched(){
+  const res = await api('/api/schedule', { method:'POST' });
+  refresh();
+}
+
+async function discover(){
+  const btn = el('btnDiscover'); btn.disabled = true;
+  await api('/api/discover', { method:'POST' });
+  refresh();
+  btn.disabled = false;
+}
+
+async function montage(){
+  const btn = el('btnMontage');
+  const log = el('log');
+  const res = await api('/api/montage', { method:'POST' });
+  log.style.display = 'block';
+  log.textContent = 'Монтирую... (2:00 куски + мелодия)';
+  btn.disabled = true;
+  // опрос прогресса в фоне
+  const poll = setInterval(async () => {
+    const st = await api('/api/montage_status');
+    log.textContent = st.log.join('\n') || 'Монтирую...';
+    if (!st.running){
+      clearInterval(poll);
+      btn.disabled = false;
+      if (st.done) refresh(); // показываем новые нарезки сразу по завершении
+    }
+  }, 1500);
+}
+
+refresh();
+</script>
+</body>
+</html>

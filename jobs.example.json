@@ -1,0 +1,24 @@
+{
+  "jobs": [
+    {
+      "file": "example_part001.mp4",
+      "account": "main",
+      "platform": "tiktok",
+      "caption": "Survival skills you need to know | Part 1",
+      "tags": ["#survival", "#bushcraft", "#outdoors"],
+      "status": "pending",
+      "group": "example",
+      "scheduled_at": "2026-01-01T14:00"
+    },
+    {
+      "file": "example_part002.mp4",
+      "account": "main",
+      "platform": "tiktok",
+      "caption": "Survival skills you need to know | Part 2",
+      "tags": ["#survival", "#bushcraft", "#outdoors"],
+      "status": "pending",
+      "group": "example",
+      "scheduled_at": "2026-01-01T15:00"
+    }
+  ]
+}

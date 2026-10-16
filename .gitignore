@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# --- Content Factory: heavy media (NOT committed) ---
+# processed/ и ready/ содержат гигабайты нарезанных видео и исходников.
+processed/
+ready/
+incoming/
+*.webm
+*.mp4
+*.mov
+*.mkv
+*.avi
+
+# generated / runtime
+jobs.json
+server.log
+*.log
+.DS_Store
+
+# editor / os
+.idea/
+.vscode/
