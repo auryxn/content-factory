@@ -1,6 +1,6 @@
 # Content Factory
 
-> Часть портфолио: [сайт-портфолио](https://auryxn.github.io) — репозиторий сайта [site-admin](https://github.com/auryxn/site-admin).
+> Часть портфолио: [auryxn.codes](https://auryxn.codes) — репозиторий сайта [site-admin](https://github.com/auryxn/site-admin).
 
 > Локальный «контент-завод»: режет длинные видео на короткие ролики под TikTok, накладывает фоновую музыку и ведёт расписание публикаций через веб-дашборд.
 
